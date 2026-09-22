@@ -268,6 +268,8 @@ table.track{width:100%;min-width:980px;border-collapse:separate;border-spacing:0
 .chip-name{font-size:12.5px;}
 .mx-cell.drop{border-color:var(--teal-deep);box-shadow:inset 0 0 0 2px var(--sage);}
 .chip.dragging{opacity:.35;}
+.chip.ins-antes{box-shadow:0 -3px 0 0 var(--teal-deep);}
+.chip.ins-depois{box-shadow:0 3px 0 0 var(--teal-deep);}
 
 /* acesso e sincronização */
 .top-sync{font-size:11px;color:rgba(224,238,231,.62);white-space:nowrap;}
@@ -515,10 +517,12 @@ let NOTAS_INI = {};
 const STEP_TXT = {ok:'Concluído', and:'Em andamento', agu:'Aguardando', def:'A definir', plan:'Planejado'};
 
 /* estado */
-let DATA = clone(SUGERIDO);
+let DATA = clone(SUGERIDO).sort(porPos);
 let ETAPAS = clone(STEPS);
 let FILTRO = 'todos', EDIT_ID = null;
 function clone(o){ return JSON.parse(JSON.stringify(o)); }
+/* ordem de prioridade dentro de cada célula da grade (campo pos da planilha) */
+function porPos(a, b){ return (Number(a.pos) || 0) - (Number(b.pos) || 0); }
 
 /* ============ sincronização ============ */
 const API_URL   = (window.TRI_CONFIG || {}).API_URL || '';
@@ -527,7 +531,7 @@ const OFFLINE   = SUGERIDO.length > 0;   /* cópia exportada: roda sem login, n�
 let TEXTOS = {}, NOTAS = {}, NOTA_ID = null;
 let TOKEN = null, SNAP = {}, SNAP_ET = '', PEND = false, TMR = null;
 
-function persistivel(c){ return {erp:c.erp, onda:c.onda, resp:c.resp, resp2:c.resp2 || '', m:c.m, bloq:c.bloq, desc:c.desc || ''}; }
+function persistivel(c){ return {pos:c.pos, erp:c.erp, onda:c.onda, resp:c.resp, resp2:c.resp2 || '', m:c.m, bloq:c.bloq, desc:c.desc || ''}; }
 function marca(txt){ const el = document.getElementById('syncState'); if (el) el.textContent = txt; }
 function hhmm(){ const d = new Date(), z = n => String(n).padStart(2, '0'); return z(d.getHours()) + ':' + z(d.getMinutes()); }
 function gateErro(t){ const el = document.getElementById('gerro'); if (el) el.textContent = t || ''; }
@@ -537,7 +541,7 @@ function fechaGate(){ document.getElementById('gate').classList.add('off'); }
 function aplica(d){
   SUGERIDO = d.clientes || []; STEPS = d.etapas || [];
   OUTROS_ERP = d.outros_erp || []; SEM_ERP = d.sem_erp || []; TEXTOS = d.textos || {}; NOTAS = d.notas || {}; CONSULTORES = d.consultores || [];
-  DATA = clone(SUGERIDO); ETAPAS = clone(STEPS);
+  DATA = clone(SUGERIDO).sort(porPos); ETAPAS = clone(STEPS);
   SNAP = {}; DATA.forEach(c => { SNAP[c.id] = JSON.stringify(persistivel(c)); });
   SNAP_ET = JSON.stringify(ETAPAS);
 }
@@ -700,7 +704,7 @@ function renderMatrix(){
       h += '<div class="mx-cell fase fase-' + o.id + '" data-onda="' + o.id + '" data-erp="' + e + '">' + DATA.filter(c => c.onda === o.id && c.erp === e).map(c => chip(c, false)).join('') + '</div>';
     });
   });
-  document.getElementById('legend').textContent = 'Arraste um cliente para mudar de fase ou de ERP. Clique nos botões para definir o responsável e o apoio.';
+  document.getElementById('legend').textContent = 'Arraste um cliente para mudar de fase, de ERP ou de posição na fila. Clique nos botões para definir o responsável e o apoio.';
   mx.innerHTML = h;
 }
 
@@ -773,7 +777,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(
 function closeModals(){ document.querySelectorAll('.modal-bg').forEach(m => m.classList.remove('open')); }
 
 document.getElementById('btnReset').addEventListener('click', () => {
-  if (OFFLINE){ DATA = clone(SUGERIDO); ETAPAS = clone(STEPS); renderAll(); return; }
+  if (OFFLINE){ DATA = clone(SUGERIDO).sort(porPos); ETAPAS = clone(STEPS); renderAll(); return; }
   if (!confirm('Descartar as alterações ainda não salvas e recarregar o painel a partir do servidor?')) return;
   clearTimeout(TMR); PEND = false;
   carregar(false).catch(() => marca('não foi possível recarregar'));
@@ -850,26 +854,50 @@ mxEl.addEventListener('dragstart', e => {
   DRAGC = c.dataset.id; c.classList.add('dragging');
   try{ e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', DRAGC); }catch(_){}
 });
+function alvoChip(e, cell){
+  const ch = e.target.closest('.chip');
+  if (!ch || !cell.contains(ch)) return null;
+  if (ch.dataset.id === DRAGC) return {mesmo: true};
+  const r = ch.getBoundingClientRect();
+  return {el: ch, antes: e.clientY < r.top + r.height / 2};
+}
+function limpaIns(){ mxEl.querySelectorAll('.ins-antes,.ins-depois').forEach(x => x.classList.remove('ins-antes','ins-depois')); }
 mxEl.addEventListener('dragover', e => {
   const cell = e.target.closest('.mx-cell'); if (!cell || !DRAGC) return;
   e.preventDefault();
   mxEl.querySelectorAll('.mx-cell.drop').forEach(x => x !== cell && x.classList.remove('drop'));
   cell.classList.add('drop');
+  limpaIns();
+  const alvo = alvoChip(e, cell);
+  if (alvo && alvo.el) alvo.el.classList.add(alvo.antes ? 'ins-antes' : 'ins-depois');
 });
 mxEl.addEventListener('drop', e => {
   const cell = e.target.closest('.mx-cell'); if (!cell || !DRAGC) return;
-  e.preventDefault();
+  e.preventDefault(); limpaIns();
   const c = DATA.find(x => x.id === DRAGC);
-  const novoErp = cell.dataset.erp;
-  if (novoErp && novoErp !== c.erp){
+  const novaOnda = cell.dataset.onda, novoErp = cell.dataset.erp || c.erp;
+  const alvo = alvoChip(e, cell);
+  /* nova posição: entre os vizinhos na célula de destino; só o cliente arrastado muda de pos */
+  let novoPos = c.pos;
+  if (!(alvo && alvo.mesmo)){
+    const fila = DATA.filter(x => x.onda === novaOnda && x.erp === novoErp && x.id !== c.id).sort(porPos);
+    let k = fila.length;
+    if (alvo && alvo.el){ k = fila.findIndex(x => x.id === alvo.el.dataset.id); if (!alvo.antes) k++; }
+    const ant = fila[k - 1], prox = fila[k];
+    if (ant && prox) novoPos = (Number(ant.pos) + Number(prox.pos)) / 2;
+    else if (ant) novoPos = Number(ant.pos) + 10;
+    else if (prox) novoPos = Number(prox.pos) - 10;
+  }
+  if (novoErp !== c.erp){
     if (!confirm('Trocar o ERP de ' + c.nome + ' de ' + erpNome(c.erp) + ' para ' + erpNome(novoErp) + '?')){ DRAGC = null; renderAll(); return; }
     c.erp = novoErp;
   }
-  c.onda = cell.dataset.onda;
+  c.onda = novaOnda; c.pos = novoPos;
   if (cell.dataset.resp !== undefined) c.resp = cell.dataset.resp;
+  DATA.sort(porPos);
   DRAGC = null; save(); renderAll();
 });
-mxEl.addEventListener('dragend', () => { DRAGC = null; mxEl.querySelectorAll('.dragging,.drop').forEach(x => x.classList.remove('dragging','drop')); });
+mxEl.addEventListener('dragend', () => { DRAGC = null; limpaIns(); mxEl.querySelectorAll('.dragging,.drop').forEach(x => x.classList.remove('dragging','drop')); });
 
 let DL = null;
 try{ if (window.claude && typeof window.claude.use === 'function') DL = window.claude.use('downloads'); }catch(e){ DL = null; }
