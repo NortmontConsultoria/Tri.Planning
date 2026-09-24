@@ -328,7 +328,15 @@ table.track{width:100%;min-width:980px;border-collapse:separate;border-spacing:0
 .np-lista{flex:1;overflow-y:auto;padding:4px 24px 28px;}
 .np-item{border-left:3px solid #5C9B79;padding:4px 0 4px 12px;margin:12px 0;}
 .np-item:first-child{border-left-color:#0F4245;}
-.np-meta{font-size:11px;font-weight:600;color:var(--ink-muted);margin-bottom:3px;}
+.np-meta{font-size:11px;font-weight:600;color:var(--ink-muted);margin-bottom:3px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+.np-act{display:inline-flex;gap:10px;flex:none;}
+.np-act button{font:inherit;font-size:10.5px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--navy-40);background:none;border:none;padding:0;cursor:pointer;}
+.np-act button:hover{color:var(--teal-deep);text-decoration:underline;}
+.np-act.fim{justify-content:flex-end;margin-top:8px;}
+.np-act button.forte{color:#0F4245;}
+.np-edit{width:100%;box-sizing:border-box;resize:vertical;min-height:84px;font:inherit;font-size:13px;line-height:1.55;color:var(--ink);
+  background:var(--chip-bg);border:1px solid var(--chip-line);border-radius:8px;padding:8px 10px;margin-top:2px;}
+.np-edit:focus{outline:none;border-color:var(--teal-deep);}
 .np-texto{font-size:13px;line-height:1.55;color:var(--ink);white-space:pre-wrap;word-wrap:break-word;}
 .np-vazio{font-size:12.5px;color:var(--navy-40);padding:14px 0;}
 </style>
@@ -524,7 +532,7 @@ function porPos(a, b){ return (Number(a.pos) || 0) - (Number(b.pos) || 0); }
 const API_URL   = (window.TRI_CONFIG || {}).API_URL || '';
 const CLIENT_ID = (window.TRI_CONFIG || {}).CLIENT_ID || '';
 const OFFLINE   = SUGERIDO.length > 0;   /* cópia exportada: roda sem login, não sincroniza */
-let TEXTOS = {}, NOTAS = {}, NOTA_ID = null;
+let TEXTOS = {}, NOTAS = {}, NOTA_ID = null, EDIT_NOTA = null;
 let TOKEN = null, SNAP = {}, SNAP_ET = '', PEND = false, TMR = null;
 
 function persistivel(c){ return {pos:c.pos, erp:c.erp, onda:c.onda, resp:c.resp, resp2:c.resp2 || '', m:c.m, bloq:c.bloq, desc:c.desc || ''}; }
@@ -956,18 +964,35 @@ function obsCel(c){
     '<span class="obs-txt">' + esc(txt || 'Sem observações · abrir notas') + '</span>' +
     (meta ? '<span class="obs-meta">' + esc(meta) + '</span>' : '') + '</button>';
 }
+function itemNota(n){
+  const meta = esc(dataCurta(n.quando)) + ' · ' + esc(n.quem);
+  if (EDIT_NOTA && n.nid && n.nid === EDIT_NOTA){
+    return '<div class="np-item"><div class="np-meta"><span>' + meta + '</span></div>' +
+      '<textarea class="np-edit" id="npEdit">' + esc(n.texto) + '</textarea>' +
+      '<div class="np-act fim"><button data-ncancel="1">cancelar</button>' +
+      '<button class="forte" data-nsave="' + esc(n.nid) + '">salvar</button></div></div>';
+  }
+  const acoes = (n.meu && n.nid && !OFFLINE)
+    ? '<span class="np-act"><button data-nedit="' + esc(n.nid) + '">editar</button>' +
+      '<button data-ndel="' + esc(n.nid) + '">excluir</button></span>'
+    : '';
+  return '<div class="np-item"><div class="np-meta"><span>' + meta + '</span>' + acoes + '</div>' +
+    '<div class="np-texto">' + esc(n.texto) + '</div></div>';
+}
 function renderNotas(){
   const c = DATA.find(x => x.id === NOTA_ID); if (!c) return;
   const o = ONDAS.find(x => x.id === c.onda);
   document.getElementById('npSub').textContent = erpNome(c.erp) + (o ? ' · ' + o.label : '') + (c.resp ? ' · ' + c.resp + (c.resp2 ? ' + ' + c.resp2 : '') : '');
   document.getElementById('npNome').textContent = c.nome;
   const lista = NOTAS[c.id] || [];
-  let h = lista.map(n => '<div class="np-item"><div class="np-meta">' + esc(dataCurta(n.quando)) + ' · ' + esc(n.quem) + '</div><div class="np-texto">' + esc(n.texto) + '</div></div>').join('');
-  if (!lista.length && c.bloq) h = '<div class="np-item"><div class="np-meta">observação anterior</div><div class="np-texto">' + esc(c.bloq) + '</div></div>';
+  let h = lista.map(itemNota).join('');
+  if (!lista.length && c.bloq) h = '<div class="np-item"><div class="np-meta"><span>observação anterior</span></div><div class="np-texto">' + esc(c.bloq) + '</div></div>';
   document.getElementById('npLista').innerHTML = h || '<div class="np-vazio">Nenhuma anotação ainda.</div>';
+  const ed = document.getElementById('npEdit');
+  if (ed){ ed.focus(); ed.setSelectionRange(ed.value.length, ed.value.length); }
 }
 function abreNotas(id){
-  NOTA_ID = id; renderNotas();
+  NOTA_ID = id; EDIT_NOTA = null; renderNotas();
   const t = document.getElementById('npTxt');
   t.value = ''; t.disabled = OFFLINE;
   t.placeholder = OFFLINE ? 'Cópia local: somente leitura.' : 'Registre o status, o que foi combinado e o que ficou pendente…';
@@ -977,7 +1002,7 @@ function abreNotas(id){
   if (!OFFLINE) setTimeout(() => t.focus(), 200);
 }
 function fechaNotas(){
-  NOTA_ID = null;
+  NOTA_ID = null; EDIT_NOTA = null;
   document.getElementById('np').classList.remove('open'); document.getElementById('npBg').classList.remove('open');
 }
 async function registraNota(){
@@ -1007,6 +1032,52 @@ document.getElementById('npX').addEventListener('click', fechaNotas);
 document.getElementById('npBg').addEventListener('click', fechaNotas);
 document.getElementById('npOk').addEventListener('click', registraNota);
 document.getElementById('npTxt').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) registraNota(); });
+
+/* editar e excluir anotação — só o autor, validado também no servidor */
+async function acaoNota(acao, nid, texto){
+  if (OFFLINE || !nid) return;
+  const msg = document.getElementById('npMsg');
+  msg.textContent = acao === 'excluir' ? 'excluindo…' : 'salvando…';
+  try{
+    const r = await fetch(API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({t:TOKEN, nota:{acao:acao, nid:nid, texto:texto || ''}})});
+    const j = await r.json();
+    if (!j.ok){
+      if (j.erro === 'nao_autorizado'){ abreGate('A sessão expirou. Entre novamente e refaça a alteração.'); try{ google.accounts.id.prompt(); }catch(_){} }
+      throw new Error(j.erro || 'falha');
+    }
+    const lista = NOTAS[NOTA_ID] || [];
+    const i = lista.findIndex(x => x.nid === nid);
+    if (i >= 0){
+      if (acao === 'excluir') lista.splice(i, 1);
+      else lista[i].texto = j.texto;
+    }
+    EDIT_NOTA = null;
+    msg.textContent = (acao === 'excluir' ? 'excluída às ' : 'salva às ') + hhmm();
+    renderNotas(); renderAll();
+  }catch(e){
+    const err = e && e.message;
+    msg.textContent = err === 'nao_e_sua' ? 'só quem escreveu pode alterar esta anotação'
+      : err === 'anotacao nao encontrada' ? 'anotação não encontrada — recarregue o painel'
+      : 'não deu — tente de novo';
+    renderNotas();
+  }
+}
+function salvaEdicao(nid){
+  const t = document.getElementById('npEdit'); if (!t) return;
+  const v = t.value.trim();
+  if (!v){ document.getElementById('npMsg').textContent = 'texto vazio — para tirar a anotação, use excluir'; return; }
+  acaoNota('editar', nid, v);
+}
+document.getElementById('npLista').addEventListener('click', e => {
+  const ed = e.target.closest('[data-nedit]');
+  if (ed){ EDIT_NOTA = ed.dataset.nedit; document.getElementById('npMsg').textContent = ''; renderNotas(); return; }
+  if (e.target.closest('[data-ncancel]')){ EDIT_NOTA = null; renderNotas(); return; }
+  const sv = e.target.closest('[data-nsave]');
+  if (sv){ salvaEdicao(sv.dataset.nsave); return; }
+  const dl = e.target.closest('[data-ndel]');
+  if (dl && confirm('Excluir esta anotação? Ela sai do painel e fica guardada na planilha.')) acaoNota('excluir', dl.dataset.ndel);
+});
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && NOTA_ID) fechaNotas(); });
 
 iniciar();
