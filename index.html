@@ -473,12 +473,8 @@ window.TRI_CONFIG = {
 </section></div>
 </main>
 
-<div class="modal-bg" id="modalEdit"><div class="modal">
-  <h3 id="mdNome"></h3><div class="sub" id="mdSub"></div>
-  <div class="nota-box" id="mdNota"></div>
-  <div class="field"><label for="mdOnda">Fase</label><select id="mdOnda"></select></div>
-  <div class="modal-actions"><button class="btn" data-close="">Cancelar</button><button class="btn primary" id="mdSalvar">Salvar</button></div>
-</div></div>
+<!-- modalEdit removido em 23/09/2026: só trocava a fase (o arraste já faz) e o gatilho no card inteiro
+     impedia digitar na caixa de descrição. A nota fixa do cliente passou a aparecer no title do card. -->
 
 
 
@@ -519,7 +515,7 @@ const STEP_TXT = {ok:'Concluído', and:'Em andamento', agu:'Aguardando', def:'A 
 /* estado */
 let DATA = clone(SUGERIDO).sort(porPos);
 let ETAPAS = clone(STEPS);
-let FILTRO = 'todos', EDIT_ID = null;
+let FILTRO = 'todos';
 function clone(o){ return JSON.parse(JSON.stringify(o)); }
 /* ordem de prioridade dentro de cada célula da grade (campo pos da planilha) */
 function porPos(a, b){ return (Number(a.pos) || 0) - (Number(b.pos) || 0); }
@@ -688,7 +684,8 @@ function descInp(c){
 }
 function chip(c, showErp){
   const tags = c.tags.map(t => '<span class="tag' + (/troca|duplo/.test(t) ? ' alerta' : '') + '">' + esc(t) + '</span>').join('');
-  return '<div class="chip fase fase-' + c.onda + '" draggable="true" data-id="' + c.id + '">' +
+  return '<div class="chip fase fase-' + c.onda + '" draggable="true" data-id="' + c.id + '"' +
+    (c.nota ? ' title="' + esc(c.nota) + '"' : '') + '>' +
     '<div class="chip-name">' + esc(c.nome) + '</div>' +
     '<div class="chip-meta">' + (showErp ? esc(erpNome(c.erp)) : pickPar(c)) + '</div>' +
     (tags ? '<div>' + tags + '</div>' : '') + descInp(c) + '</div>';
@@ -755,22 +752,7 @@ document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', (
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + b.dataset.tab));
   window.scrollTo({top:0});
 }));
-document.getElementById('matrix').addEventListener('click', e => {
-  if (e.target.closest('select')) return;
-  const b = e.target.closest('.chip'); if (!b) return;
-  const c = DATA.find(x => x.id === b.dataset.id); EDIT_ID = c.id;
-  document.getElementById('mdNome').textContent = c.nome;
-  document.getElementById('mdSub').textContent = c.erp;
-  const nota = document.getElementById('mdNota');
-  nota.textContent = c.nota; nota.style.display = c.nota ? 'block' : 'none';
-  document.getElementById('mdOnda').innerHTML = ONDAS.map(o => '<option value="' + o.id + '"' + (o.id === c.onda ? ' selected' : '') + '>' + o.label + ' · até ' + o.prazo + '</option>').join('');
-  document.getElementById('modalEdit').classList.add('open');
-});
-document.getElementById('mdSalvar').addEventListener('click', () => {
-  const c = DATA.find(x => x.id === EDIT_ID);
-  c.onda = document.getElementById('mdOnda').value;
-  save(); renderAll(); closeModals();
-});
+/* o clique no card não abre mais nada: fase muda por arraste e a descrição é editável no próprio card */
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeModals));
 document.querySelectorAll('.modal-bg').forEach(m => m.addEventListener('click', e => { if (e.target === m) closeModals(); }));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(); });
